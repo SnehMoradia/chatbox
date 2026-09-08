@@ -8,14 +8,18 @@ import {
   Loader2,
   Film,
   FileText,
+  AtSign,
 } from 'lucide-react';
 import { useChat } from '../../context/ChatContext';
+import { useAuth } from '../../context/AuthContext';
 import { EmojiPicker } from '../pickers/EmojiPicker';
 import { GifPicker } from '../pickers/GifPicker';
+import { Avatar } from '../common/Avatar';
 import { uploadsApi } from '../../services/api';
-import { Attachment } from '../../types';
+import { Attachment, User } from '../../types';
 
 export const MessageComposer: React.FC = () => {
+  const { user } = useAuth();
   const {
     activeConversation,
     sendMessage,
@@ -33,6 +37,8 @@ export const MessageComposer: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
+  const [showMentionPopup, setShowMentionPopup] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -58,19 +64,73 @@ export const MessageComposer: React.FC = () => {
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setText(e.target.value);
+    const val = e.target.value;
+    setText(val);
     adjustHeight();
-    if (e.target.value.trim()) {
+
+    // Check for @mention trigger
+    const cursorPos = e.target.selectionStart || val.length;
+    const textBeforeCursor = val.slice(0, cursorPos);
+    const lastAtIdx = textBeforeCursor.lastIndexOf('@');
+
+    if (lastAtIdx !== -1 && (lastAtIdx === 0 || /\s/.test(textBeforeCursor[lastAtIdx - 1]))) {
+      const q = textBeforeCursor.slice(lastAtIdx + 1);
+      if (!q.includes(' ') && !q.includes('\n')) {
+        setMentionQuery(q);
+        setShowMentionPopup(true);
+      } else {
+        setShowMentionPopup(false);
+      }
+    } else {
+      setShowMentionPopup(false);
+    }
+
+    if (val.trim()) {
       sendTyping();
     } else {
       sendStopTyping();
     }
   };
 
+  const handleSelectMention = (member: User) => {
+    const cursorPos = textareaRef.current?.selectionStart || text.length;
+    const textBeforeCursor = text.slice(0, cursorPos);
+    const textAfterCursor = text.slice(cursorPos);
+    const lastAtIdx = textBeforeCursor.lastIndexOf('@');
+
+    let newText = '';
+    if (lastAtIdx !== -1) {
+      newText = textBeforeCursor.slice(0, lastAtIdx) + `@${member.displayName} ` + textAfterCursor;
+    } else {
+      newText = text + `@${member.displayName} `;
+    }
+
+    setText(newText);
+    setShowMentionPopup(false);
+    setMentionQuery(null);
+    textareaRef.current?.focus();
+  };
+
+  const handleTriggerMention = () => {
+    setText((prev) => (prev.endsWith(' ') || prev === '' ? prev + '@' : prev + ' @'));
+    setShowMentionPopup(true);
+    setMentionQuery('');
+    textareaRef.current?.focus();
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
+      // If mention popup is open and enter is pressed without selecting, let user type or close popup
+      if (showMentionPopup && mentionCandidates.length > 0) {
+        e.preventDefault();
+        handleSelectMention(mentionCandidates[0]);
+        return;
+      }
+
       e.preventDefault();
       handleSend();
+    } else if (e.key === 'Escape' && showMentionPopup) {
+      setShowMentionPopup(false);
     }
   };
 
@@ -92,6 +152,7 @@ export const MessageComposer: React.FC = () => {
 
     setText('');
     setAttachments([]);
+    setShowMentionPopup(false);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     sendStopTyping();
   };
@@ -143,9 +204,58 @@ export const MessageComposer: React.FC = () => {
 
   if (!activeConversation) return null;
 
+  // Filter mention candidates from active conversation members
+  const rawMembers = activeConversation.members || [];
+  const mentionCandidates = rawMembers
+    .filter((m) => m._id !== user?._id)
+    .filter((m) => {
+      if (!mentionQuery) return true;
+      const q = mentionQuery.toLowerCase();
+      return (
+        m.displayName?.toLowerCase().includes(q) ||
+        m.username?.toLowerCase().includes(q)
+      );
+    });
+
   return (
     <div className="p-3 bg-white dark:bg-teamsDark-sidebar border-t border-gray-200/80 dark:border-teamsDark-border select-none flex-shrink-0">
       <div className="relative border border-gray-300 dark:border-teamsDark-border rounded-xl bg-gray-50 dark:bg-teamsDark-input shadow-xs focus-within:border-teams-500 focus-within:ring-1 focus-within:ring-teams-500 transition-all">
+        {/* @Mention Autocomplete Popup */}
+        {showMentionPopup && mentionCandidates.length > 0 && (
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setShowMentionPopup(false)}
+            />
+            <div className="absolute bottom-full mb-2 left-2 z-50 w-64 bg-white dark:bg-teamsDark-card border border-gray-200 dark:border-teamsDark-border rounded-xl shadow-xl overflow-hidden py-1 animate-fade-in select-none">
+              <div className="px-3 py-1 text-[10px] font-semibold text-teams-600 dark:text-teams-400 uppercase tracking-wider border-b border-gray-100 dark:border-teamsDark-border flex items-center gap-1">
+                <AtSign className="w-3 h-3" />
+                Mention Teammate
+              </div>
+              <div className="max-h-48 overflow-y-auto teams-scrollbar">
+                {mentionCandidates.map((m) => (
+                  <button
+                    key={m._id}
+                    type="button"
+                    onClick={() => handleSelectMention(m)}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover transition-colors cursor-pointer"
+                  >
+                    <Avatar name={m.displayName} imageUrl={m.profilePicture} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 truncate">
+                        {m.displayName}
+                      </div>
+                      <div className="text-[10px] text-gray-400 truncate">
+                        @{m.username}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
         {/* Replying Banner Preview */}
         {replyingTo && (
           <div className="flex items-center justify-between px-3 py-1.5 bg-gray-100 dark:bg-teamsDark-card border-b border-gray-200 dark:border-teamsDark-border rounded-t-xl text-xs">
@@ -222,7 +332,7 @@ export const MessageComposer: React.FC = () => {
               activeConversation.type === 'group'
                 ? activeConversation.name || 'Group'
                 : 'in this chat'
-            }... (Shift+Enter for newline)`}
+            }... (Type @ to mention, Enter to send)`}
             className="w-full bg-transparent text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none resize-none teams-scrollbar max-h-36"
           />
         </div>
@@ -230,6 +340,16 @@ export const MessageComposer: React.FC = () => {
         {/* Action Controls & Send Button */}
         <div className="flex items-center justify-between px-2 pb-2">
           <div className="flex items-center gap-0.5 text-gray-500 dark:text-gray-400">
+            {/* @ Mention Tag Button */}
+            <button
+              type="button"
+              onClick={handleTriggerMention}
+              className="p-2 rounded-lg hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200/60 dark:hover:bg-teamsDark-card transition-colors cursor-pointer"
+              title="Tag / Mention someone (@)"
+            >
+              <AtSign className="w-4 h-4" />
+            </button>
+
             {/* Emoji Picker Button */}
             <div className="relative">
               <button
@@ -238,7 +358,7 @@ export const MessageComposer: React.FC = () => {
                   setShowEmojiPicker(!showEmojiPicker);
                   setShowGifPicker(false);
                 }}
-                className="p-2 rounded-lg hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200/60 dark:hover:bg-teamsDark-card transition-colors"
+                className="p-2 rounded-lg hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200/60 dark:hover:bg-teamsDark-card transition-colors cursor-pointer"
                 title="Insert emoji"
               >
                 <Smile className="w-4 h-4" />
@@ -268,7 +388,7 @@ export const MessageComposer: React.FC = () => {
                   setShowGifPicker(!showGifPicker);
                   setShowEmojiPicker(false);
                 }}
-                className="p-2 rounded-lg hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200/60 dark:hover:bg-teamsDark-card transition-colors"
+                className="p-2 rounded-lg hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200/60 dark:hover:bg-teamsDark-card transition-colors cursor-pointer"
                 title="Search GIFs"
               >
                 <Film className="w-4 h-4" />
@@ -302,7 +422,7 @@ export const MessageComposer: React.FC = () => {
             <button
               type="button"
               onClick={() => imageInputRef.current?.click()}
-              className="p-2 rounded-lg hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200/60 dark:hover:bg-teamsDark-card transition-colors"
+              className="p-2 rounded-lg hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200/60 dark:hover:bg-teamsDark-card transition-colors cursor-pointer"
               title="Attach image"
             >
               <ImageIcon className="w-4 h-4" />
@@ -319,7 +439,7 @@ export const MessageComposer: React.FC = () => {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="p-2 rounded-lg hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200/60 dark:hover:bg-teamsDark-card transition-colors"
+              className="p-2 rounded-lg hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-200/60 dark:hover:bg-teamsDark-card transition-colors cursor-pointer"
               title="Attach document or file"
             >
               <Paperclip className="w-4 h-4" />

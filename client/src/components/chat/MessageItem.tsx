@@ -8,12 +8,16 @@ import {
   Edit2,
   Trash2,
   Check,
-  CheckCheck,
   Eye,
   Clock,
   Download,
   FileText,
   PinOff,
+  MoreHorizontal,
+  Link2,
+  Bookmark,
+  Info,
+  AtSign,
 } from 'lucide-react';
 import { Message } from '../../types';
 import { Avatar } from '../common/Avatar';
@@ -21,6 +25,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useChat } from '../../context/ChatContext';
 import { EmojiPicker } from '../pickers/EmojiPicker';
 import { DeleteConfirmModal } from '../modals/DeleteConfirmModal';
+import { MessageInfoModal } from '../modals/MessageInfoModal';
 import { format } from 'date-fns';
 
 interface MessageItemProps {
@@ -28,7 +33,8 @@ interface MessageItemProps {
   isSameSenderAsPrev?: boolean;
 }
 
-const quickEmojis = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
+// 4 main reactions matching Teams
+const primaryEmojis = ['👍', '❤️', '😆', '😮'];
 
 export const MessageItem: React.FC<MessageItemProps> = ({
   message,
@@ -46,7 +52,9 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   } = useChat();
 
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showMessageInfo, setShowMessageInfo] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [copied, setCopied] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
@@ -59,6 +67,15 @@ export const MessageItem: React.FC<MessageItemProps> = ({
   const isGroupAdmin =
     isGroup &&
     activeConversation?.admins?.some((a) => a._id === user?._id);
+
+  // Check if message has @mentions
+  const hasMention =
+    Boolean(message.content && /@[a-zA-Z0-9_\s]+/i.test(message.content));
+
+  // Check if current user is directly mentioned
+  const mentionsMe =
+    Boolean(user?.displayName && message.content?.toLowerCase().includes(`@${user.displayName.toLowerCase()}`)) ||
+    Boolean(user?.username && message.content?.toLowerCase().includes(`@${user.username.toLowerCase()}`));
 
   // Group reactions by emoji
   const groupedReactions = (message.reactions || []).reduce(
@@ -100,14 +117,19 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
-  // Helper to autolink URLs in text
-  const renderContentWithLinks = (content: string, sentByMe: boolean) => {
+  // Helper to autolink URLs and highlight @mentions
+  const renderContentWithLinksAndMentions = (content: string, sentByMe: boolean) => {
     if (!content) return null;
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const parts = content.split(urlRegex);
+
+    // Combined regex for URLs and @mentions
+    const tokenRegex = /(https?:\/\/[^\s]+|@[a-zA-Z0-9_]+(?:\s[a-zA-Z0-9_]+)?)/g;
+    const parts = content.split(tokenRegex);
 
     return parts.map((part, i) => {
-      if (part.match(urlRegex)) {
+      if (!part) return null;
+
+      // Check if URL
+      if (part.match(/^https?:\/\//)) {
         return (
           <a
             key={i}
@@ -125,11 +147,28 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           </a>
         );
       }
+
+      // Check if @mention
+      if (part.startsWith('@')) {
+        return (
+          <span
+            key={i}
+            className={`inline-flex items-center px-1.5 py-0.2 rounded font-semibold text-xs transition-colors ${
+              sentByMe
+                ? 'bg-white/25 text-white underline decoration-white/50'
+                : 'bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-orange-300 border border-amber-300 dark:border-amber-800'
+            }`}
+          >
+            {part}
+          </span>
+        );
+      }
+
       return part;
     });
   };
 
-  // Render delivery & read receipt status for current user messages
+  // Circular delivery / read receipt status matching Teams reference (Image 1)
   const renderDeliveryStatus = () => {
     if (!isSender || message.isDeleted) return null;
 
@@ -140,8 +179,12 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
     if (readCount > 0) {
       return (
-        <span title="Seen" className="text-teams-500 dark:text-teams-400 flex items-center">
-          <Eye className="w-3.5 h-3.5" />
+        <span
+          title="Seen"
+          className="w-4 h-4 rounded-full border border-teams-400 dark:border-teams-400 flex items-center justify-center text-teams-500 dark:text-teams-400 select-none cursor-pointer hover:scale-110 transition-transform"
+          onClick={() => setShowMessageInfo(true)}
+        >
+          <Check className="w-2.5 h-2.5 stroke-[2.5]" />
         </span>
       );
     }
@@ -153,8 +196,12 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
     if (deliveredCount > 0) {
       return (
-        <span title="Delivered" className="text-gray-400 flex items-center">
-          <Check className="w-3.5 h-3.5" />
+        <span
+          title="Delivered"
+          className="w-4 h-4 rounded-full border border-gray-400 dark:border-gray-500 flex items-center justify-center text-gray-400 select-none cursor-pointer hover:scale-110 transition-transform"
+          onClick={() => setShowMessageInfo(true)}
+        >
+          <Check className="w-2.5 h-2.5 stroke-[2]" />
         </span>
       );
     }
@@ -166,7 +213,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     );
   };
 
-  // Action toolbar on hover
+  // Modern Teams Action Toolbar with Context Dropdown Menu matching Image 1
   const renderActionToolbar = (alignmentClass: string) => {
     if (message.isDeleted) return null;
 
@@ -174,14 +221,14 @@ export const MessageItem: React.FC<MessageItemProps> = ({
       <div
         className={`absolute -top-7 ${alignmentClass} opacity-0 group-hover:opacity-100 transition-all duration-150 bg-white dark:bg-teamsDark-card border border-gray-200 dark:border-teamsDark-border rounded-lg shadow-md flex items-center p-0.5 gap-0.5 z-30 select-none pointer-events-none group-hover:pointer-events-auto`}
       >
-        {/* Quick Reactions */}
-        <div className="hidden sm:flex items-center gap-0.5 border-r border-gray-100 dark:border-teamsDark-border pr-1 mr-0.5">
-          {quickEmojis.map((e) => (
+        {/* Quick Reactions: 👍 ❤️ 😆 😮 */}
+        <div className="flex items-center gap-0.5 pr-1">
+          {primaryEmojis.map((e) => (
             <button
               key={e}
               type="button"
               onClick={() => toggleReaction(message._id, e)}
-              className="w-6 h-6 flex items-center justify-center text-xs rounded hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover hover:scale-125 transition-transform"
+              className="w-6 h-6 flex items-center justify-center text-sm rounded hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover hover:scale-125 transition-transform cursor-pointer"
               title={`React ${e}`}
             >
               {e}
@@ -189,13 +236,16 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           ))}
         </div>
 
-        {/* More Reactions / Emoji Picker Button */}
+        {/* Emoji Picker Button 😃+ */}
         <div className="relative">
           <button
             type="button"
-            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            className="p-1 rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover transition-colors"
-            title="Add Reaction"
+            onClick={() => {
+              setShowEmojiPicker(!showEmojiPicker);
+              setShowMoreMenu(false);
+            }}
+            className="p-1 rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover transition-colors cursor-pointer"
+            title="More Reactions"
           >
             <Smile className="w-3.5 h-3.5" />
           </button>
@@ -219,77 +269,153 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           )}
         </div>
 
-        {/* Reply */}
-        <button
-          type="button"
-          onClick={() => setReplyingTo(message)}
-          className="p-1 rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover transition-colors"
-          title="Reply"
-        >
-          <Reply className="w-3.5 h-3.5" />
-        </button>
+        <div className="w-[1px] h-4 bg-gray-200 dark:border-teamsDark-border mx-0.5" />
 
-        {/* Pin / Unpin */}
-        <button
-          type="button"
-          onClick={() => togglePin(message._id)}
-          className="p-1 rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover transition-colors"
-          title={message.isPinned ? 'Unpin' : 'Pin'}
-        >
-          {message.isPinned ? (
-            <PinOff className="w-3.5 h-3.5 text-amber-500" />
-          ) : (
-            <Pin className="w-3.5 h-3.5 rotate-45" />
-          )}
-        </button>
-
-        {/* Copy */}
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="p-1 rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover transition-colors"
-          title={copied ? 'Copied!' : 'Copy text'}
-        >
-          {copied ? (
-            <Check className="w-3.5 h-3.5 text-emerald-500" />
-          ) : (
-            <Copy className="w-3.5 h-3.5" />
-          )}
-        </button>
-
-        {/* Forward */}
-        <button
-          type="button"
-          onClick={() => setForwardingMessage(message)}
-          className="p-1 rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover transition-colors"
-          title="Forward"
-        >
-          <Forward className="w-3.5 h-3.5" />
-        </button>
-
-        {/* Edit (only sender) */}
+        {/* Edit Button (if sender) */}
         {isSender && (
           <button
             type="button"
             onClick={() => setEditingMessage(message)}
-            className="p-1 rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover transition-colors"
-            title="Edit"
+            className="p-1 rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover transition-colors cursor-pointer"
+            title="Edit message"
           >
             <Edit2 className="w-3.5 h-3.5" />
           </button>
         )}
 
-        {/* Delete (sender or group admin) */}
-        {(isSender || isGroupAdmin) && (
+        {/* More Actions Dropdown (...) */}
+        <div className="relative">
           <button
             type="button"
-            onClick={() => setShowDeleteModal(true)}
-            className="p-1 rounded text-gray-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-            title="Delete"
+            onClick={() => {
+              setShowMoreMenu(!showMoreMenu);
+              setShowEmojiPicker(false);
+            }}
+            className={`p-1 rounded text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover transition-colors cursor-pointer ${
+              showMoreMenu ? 'bg-gray-100 dark:bg-teamsDark-cardHover text-gray-900 dark:text-gray-100' : ''
+            }`}
+            title="More options"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <MoreHorizontal className="w-3.5 h-3.5" />
           </button>
-        )}
+
+          {showMoreMenu && (
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setShowMoreMenu(false)}
+              />
+              <div
+                className={`absolute top-7 ${
+                  isSender ? 'right-0' : 'left-0'
+                } z-50 w-44 bg-white dark:bg-teamsDark-card border border-gray-200 dark:border-teamsDark-border rounded-xl shadow-xl py-1 text-xs select-none animate-fade-in`}
+              >
+                {/* Reply */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReplyingTo(message);
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover text-left transition-colors cursor-pointer"
+                >
+                  <Reply className="w-3.5 h-3.5" />
+                  <span>Reply</span>
+                </button>
+
+                {/* Forward */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForwardingMessage(message);
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover text-left transition-colors cursor-pointer"
+                >
+                  <Forward className="w-3.5 h-3.5" />
+                  <span>Forward</span>
+                </button>
+
+                {/* Copy link */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleCopy();
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover text-left transition-colors cursor-pointer"
+                >
+                  <Link2 className="w-3.5 h-3.5" />
+                  <span>{copied ? 'Copied!' : 'Copy link'}</span>
+                </button>
+
+                {/* Pin for everyone */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    togglePin(message._id);
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover text-left transition-colors cursor-pointer"
+                >
+                  {message.isPinned ? (
+                    <>
+                      <PinOff className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Unpin</span>
+                    </>
+                  ) : (
+                    <>
+                      <Pin className="w-3.5 h-3.5 rotate-45" />
+                      <span>Pin for everyone</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Mark as unread */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover text-left transition-colors cursor-pointer"
+                >
+                  <Bookmark className="w-3.5 h-3.5" />
+                  <span>Mark as unread</span>
+                </button>
+
+                {/* Message info */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMessageInfo(true);
+                    setShowMoreMenu(false);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover text-left transition-colors cursor-pointer"
+                >
+                  <Info className="w-3.5 h-3.5 text-teams-500" />
+                  <span>Message info</span>
+                </button>
+
+                {/* Delete (if allowed) */}
+                {(isSender || isGroupAdmin) && (
+                  <div className="border-t border-gray-100 dark:border-teamsDark-border my-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowDeleteModal(true);
+                        setShowMoreMenu(false);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-left transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     );
   };
@@ -307,7 +433,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
               key={emoji}
               type="button"
               onClick={() => toggleReaction(message._id, emoji)}
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs transition-colors select-none ${
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs transition-colors select-none cursor-pointer ${
                 userReacted
                   ? 'bg-teams-100 dark:bg-teams-900/60 text-teams-700 dark:text-teams-300 border border-teams-400'
                   : 'bg-gray-100 dark:bg-teamsDark-card hover:bg-gray-200 dark:hover:bg-teamsDark-cardHover text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-teamsDark-border'
@@ -333,7 +459,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             isSameSenderAsPrev ? 'py-0.5' : 'pt-2 pb-0.5'
           }`}
         >
-          {/* Action Toolbar on Hover */}
+          {/* Action Toolbar on Hover (matches Image 1) */}
           {renderActionToolbar('right-2')}
 
           {/* Pinned Accent Flag */}
@@ -346,104 +472,109 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
           {/* Outgoing Message Bubble Container */}
           <div className="max-w-[85%] sm:max-w-[70%] flex flex-col items-end">
-            <div
-              className={`relative px-4 py-2 text-sm leading-relaxed break-words shadow-xs transition-colors ${
-                message.isDeleted
-                  ? 'bg-gray-200 dark:bg-teamsDark-card text-gray-500 dark:text-gray-400 italic rounded-2xl rounded-tr-xs'
-                  : 'bg-teams-500 text-white rounded-2xl ' +
-                    (isSameSenderAsPrev ? 'rounded-tr-md' : 'rounded-tr-xs')
-              }`}
-            >
-              {/* Quoted reply if present */}
-              {message.replyTo && (
-                <div className="mb-1.5 p-2 rounded-lg bg-black/20 border-l-2 border-white text-xs text-white/90">
-                  <span className="font-semibold block text-[11px] text-white">
-                    {message.replyTo.senderId?.displayName || 'User'}
-                  </span>
-                  <p className="line-clamp-1 text-[11px] opacity-90">
-                    {message.replyTo.content ||
-                      (message.replyTo.gifUrl ? '[GIF]' : '[Attachment]')}
+            <div className="flex items-center gap-2">
+              <div
+                className={`relative px-4 py-2 text-sm leading-relaxed break-words shadow-xs transition-colors ${
+                  message.isDeleted
+                    ? 'bg-gray-200 dark:bg-teamsDark-card text-gray-500 dark:text-gray-400 italic rounded-2xl rounded-tr-xs'
+                    : 'bg-teams-500 text-white rounded-2xl ' +
+                      (isSameSenderAsPrev ? 'rounded-tr-md' : 'rounded-tr-xs')
+                }`}
+              >
+                {/* Quoted reply if present */}
+                {message.replyTo && (
+                  <div className="mb-1.5 p-2 rounded-lg bg-black/20 border-l-2 border-white text-xs text-white/90">
+                    <span className="font-semibold block text-[11px] text-white">
+                      {message.replyTo.senderId?.displayName || 'User'}
+                    </span>
+                    <p className="line-clamp-1 text-[11px] opacity-90">
+                      {message.replyTo.content ||
+                        (message.replyTo.gifUrl ? '[GIF]' : '[Attachment]')}
+                    </p>
+                  </div>
+                )}
+
+                {/* Deleted state */}
+                {message.isDeleted ? (
+                  <p className="flex items-center gap-1.5 py-0.5 text-xs">
+                    <Trash2 className="w-3.5 h-3.5" />
+                    This message was deleted
                   </p>
-                </div>
-              )}
+                ) : (
+                  <>
+                    {/* Text content with clickable URLs and highlighted @mentions */}
+                    {message.content && (
+                      <div className="whitespace-pre-wrap">
+                        {renderContentWithLinksAndMentions(message.content, true)}
+                      </div>
+                    )}
 
-              {/* Deleted state */}
-              {message.isDeleted ? (
-                <p className="flex items-center gap-1.5 py-0.5 text-xs">
-                  <Trash2 className="w-3.5 h-3.5" />
-                  This message was deleted
-                </p>
-              ) : (
-                <>
-                  {/* Text content with clickable URLs */}
-                  {message.content && (
-                    <div className="whitespace-pre-wrap">
-                      {renderContentWithLinks(message.content, true)}
-                    </div>
-                  )}
+                    {/* GIF Display */}
+                    {message.gifUrl && (
+                      <div className="mt-2 rounded-xl overflow-hidden shadow-xs border border-white/20">
+                        <img
+                          src={message.gifUrl}
+                          alt="Shared GIF"
+                          className="w-full h-auto max-h-72 object-cover"
+                          loading="lazy"
+                        />
+                      </div>
+                    )}
 
-                  {/* GIF Display */}
-                  {message.gifUrl && (
-                    <div className="mt-2 rounded-xl overflow-hidden shadow-xs border border-white/20">
-                      <img
-                        src={message.gifUrl}
-                        alt="Shared GIF"
-                        className="w-full h-auto max-h-72 object-cover"
-                        loading="lazy"
-                      />
-                    </div>
-                  )}
+                    {/* File / Image Attachments */}
+                    {message.attachments && message.attachments.length > 0 && (
+                      <div className="mt-2 space-y-2">
+                        {message.attachments.map((att, idx) => {
+                          const isImg = att.mimeType?.startsWith('image/');
+                          if (isImg) {
+                            return (
+                              <div
+                                key={idx}
+                                onClick={() => setLightboxImage(att.url)}
+                                className="rounded-xl overflow-hidden border border-white/20 cursor-pointer hover:opacity-95 transition-opacity"
+                              >
+                                <img
+                                  src={att.url}
+                                  alt={att.name}
+                                  className="max-h-80 w-auto rounded-xl object-contain bg-black/10"
+                                />
+                              </div>
+                            );
+                          }
 
-                  {/* File / Image Attachments */}
-                  {message.attachments && message.attachments.length > 0 && (
-                    <div className="mt-2 space-y-2">
-                      {message.attachments.map((att, idx) => {
-                        const isImg = att.mimeType?.startsWith('image/');
-                        if (isImg) {
                           return (
-                            <div
+                            <a
                               key={idx}
-                              onClick={() => setLightboxImage(att.url)}
-                              className="rounded-xl overflow-hidden border border-white/20 cursor-pointer hover:opacity-95 transition-opacity"
+                              href={att.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              download={att.name}
+                              className="flex items-center gap-2.5 p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-colors text-white"
                             >
-                              <img
-                                src={att.url}
-                                alt={att.name}
-                                className="max-h-80 w-auto rounded-xl object-contain bg-black/10"
-                              />
-                            </div>
+                              <FileText className="w-4 h-4 flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium truncate">
+                                  {att.name}
+                                </p>
+                                <p className="text-[10px] text-white/70">
+                                  {formatFileSize(att.size)}
+                                </p>
+                              </div>
+                              <Download className="w-3.5 h-3.5 text-white/80" />
+                            </a>
                           );
-                        }
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
 
-                        return (
-                          <a
-                            key={idx}
-                            href={att.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            download={att.name}
-                            className="flex items-center gap-2.5 p-2 rounded-xl bg-white/10 hover:bg-white/20 transition-colors text-white"
-                          >
-                            <FileText className="w-4 h-4 flex-shrink-0" />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium truncate">
-                                {att.name}
-                              </p>
-                              <p className="text-[10px] text-white/70">
-                                {formatFileSize(att.size)}
-                              </p>
-                            </div>
-                            <Download className="w-3.5 h-3.5 text-white/80" />
-                          </a>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
-              )}
+              {/* Circular checkmark delivery/seen receipt beside message bubble (matches Image 1) */}
+              {renderDeliveryStatus()}
             </div>
 
-            {/* Status indicators & timestamp beside / beneath sent bubble */}
+            {/* Timestamp */}
             <div className="flex items-center gap-1.5 mt-0.5 px-1 select-none">
               {message.isEdited && !message.isDeleted && (
                 <span className="text-[10px] text-gray-400 italic">(edited)</span>
@@ -451,7 +582,6 @@ export const MessageItem: React.FC<MessageItemProps> = ({
               <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">
                 {format(new Date(message.createdAt), 'h:mm a')}
               </span>
-              {renderDeliveryStatus()}
             </div>
 
             {/* Reaction Badges */}
@@ -467,7 +597,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
             isSameSenderAsPrev ? 'py-0.5' : 'pt-2 pb-0.5'
           }`}
         >
-          {/* Action Toolbar on Hover */}
+          {/* Action Toolbar on Hover (matches Image 1) */}
           {renderActionToolbar('left-12')}
 
           {/* Sender Avatar */}
@@ -485,13 +615,30 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
           {/* Content Area */}
           <div className="max-w-[85%] sm:max-w-[70%] flex flex-col items-start min-w-0">
-            {/* Sender Name & Timestamp (only for first message in consecutive chain) */}
+            {/* Sender Name & Tag Badge @ (matches Image 2: Sneh Moradia @) */}
             {!isSameSenderAsPrev && (
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+              <div className="flex items-center gap-1.5 mb-1">
+                <span
+                  className={`text-xs font-semibold ${
+                    hasMention || mentionsMe
+                      ? 'text-amber-600 dark:text-orange-400'
+                      : 'text-gray-700 dark:text-gray-300'
+                  }`}
+                >
                   {message.senderId?.displayName || 'User'}
                 </span>
-                <span className="text-[10px] text-gray-400 dark:text-gray-500">
+
+                {/* Tag @ Badge icon matching Image 2 */}
+                {(hasMention || mentionsMe) && (
+                  <span
+                    className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-amber-500/80 text-amber-600 dark:text-orange-400 text-[10px] font-bold select-none cursor-pointer"
+                    title="Mentions team member"
+                  >
+                    @
+                  </span>
+                )}
+
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-1">
                   {format(new Date(message.createdAt), 'h:mm a')}
                 </span>
                 {message.isEdited && !message.isDeleted && (
@@ -536,10 +683,10 @@ export const MessageItem: React.FC<MessageItemProps> = ({
                 </p>
               ) : (
                 <>
-                  {/* Text content with clickable URLs */}
+                  {/* Text content with clickable URLs and highlighted @mentions */}
                   {message.content && (
                     <div className="whitespace-pre-wrap">
-                      {renderContentWithLinks(message.content, false)}
+                      {renderContentWithLinksAndMentions(message.content, false)}
                     </div>
                   )}
 
@@ -625,6 +772,13 @@ export const MessageItem: React.FC<MessageItemProps> = ({
         onClose={() => setShowDeleteModal(false)}
         onConfirm={handleDelete}
         isDeleting={isDeleting}
+      />
+
+      {/* Message Info Modal (Read & Delivery Receipts) */}
+      <MessageInfoModal
+        isOpen={showMessageInfo}
+        onClose={() => setShowMessageInfo(false)}
+        message={message}
       />
 
       {/* Image Lightbox Modal */}
