@@ -1,0 +1,18 @@
+{
+  "name": "teams-chat-app",
+  "version": "1.0.0",
+  "description": "A modern, responsive real-time chatting platform inspired by Microsoft Teams",
+  "scripts": {
+    "dev": "concurrently -n \"SERVER,CLIENT\" -c \"blue,magenta\" \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "start": "npm run start --prefix server",
+    "install:all": "npm install && npm install --prefix server && npm install --prefix client",
+    "seed": "npm run seed --prefix server",
+    "build": "npm run build --prefix client"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "keywords": ["chat", "teams", "react", "socket.io", "express", "mongodb", "realtime"],
+  "author": "",
+  "license": "MIT"
+}
