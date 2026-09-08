@@ -178,6 +178,13 @@ const initializeSocket = (io) => {
       });
     });
 
+    // 10b. Chat Cleared
+    socket.on('clearChat', ({ conversationId }) => {
+      io.to(`conversation:${conversationId}`).emit('chatCleared', {
+        conversationId,
+      });
+    });
+
     // 11. User Status Changed (Available, Busy, Away, DND)
     socket.on('statusChange', async ({ status }) => {
       try {

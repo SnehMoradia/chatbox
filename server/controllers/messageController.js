@@ -447,29 +447,19 @@ const getConversationMedia = async (req, res) => {
   try {
     const { conversationId } = req.params;
 
+    // Only query messages that have file/image attachments (exclude GIFs)
     const messages = await Message.find({
       conversationId,
       isDeleted: false,
-      $or: [
-        { 'attachments.0': { $exists: true } },
-        { gifUrl: { $ne: null } },
-      ],
+      'attachments.0': { $exists: true },
     })
       .sort({ createdAt: -1 })
-      .select('attachments gifUrl createdAt senderId');
+      .select('attachments createdAt senderId');
 
     const media = [];
     const files = [];
 
     messages.forEach((msg) => {
-      if (msg.gifUrl) {
-        media.push({
-          type: 'gif',
-          url: msg.gifUrl,
-          messageId: msg._id,
-          createdAt: msg.createdAt,
-        });
-      }
       if (msg.attachments && msg.attachments.length > 0) {
         msg.attachments.forEach((att) => {
           const isImage = att.mimeType && att.mimeType.startsWith('image/');
@@ -511,6 +501,50 @@ const getConversationMedia = async (req, res) => {
   }
 };
 
+// @desc    Clear all messages in a conversation
+// @route   DELETE /api/messages/:conversationId/clear
+// @access  Private
+const clearChat = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+
+    const conversation = await Conversation.findById(conversationId);
+    if (!conversation) {
+      return res.status(404).json({ success: false, message: 'Conversation not found.' });
+    }
+
+    const isMember = conversation.members.some(
+      (m) => m.toString() === req.user._id.toString()
+    );
+    if (!isMember) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: You are not a member of this conversation.',
+      });
+    }
+
+    // Delete all messages belonging to this conversation
+    await Message.deleteMany({ conversationId });
+
+    // Reset conversation lastMessage and pinnedMessages
+    conversation.lastMessage = null;
+    conversation.pinnedMessages = [];
+    await conversation.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Chat cleared successfully.',
+      conversationId,
+    });
+  } catch (error) {
+    console.error('Clear chat error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error clearing chat.',
+    });
+  }
+};
+
 module.exports = {
   getMessages,
   sendMessage,
@@ -521,4 +555,5 @@ module.exports = {
   forwardMessage,
   markAsRead,
   getConversationMedia,
+  clearChat,
 };

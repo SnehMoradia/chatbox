@@ -182,6 +182,12 @@ export const messagesApi = {
     }>(`/messages/${conversationId}/media`);
     return res.data;
   },
+  clearChat: async (conversationId: string) => {
+    const res = await api.delete<{ success: boolean; message: string; conversationId: string }>(
+      `/messages/${conversationId}/clear`
+    );
+    return res.data;
+  },
 };
 
 // Uploads Endpoints

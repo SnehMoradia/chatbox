@@ -31,6 +31,8 @@ import { format } from 'date-fns';
 interface MessageItemProps {
   message: Message;
   isSameSenderAsPrev?: boolean;
+  searchQuery?: string;
+  isActiveMatch?: boolean;
 }
 
 // 4 main reactions matching Teams
@@ -39,6 +41,8 @@ const primaryEmojis = ['👍', '❤️', '😆', '😮'];
 export const MessageItem: React.FC<MessageItemProps> = ({
   message,
   isSameSenderAsPrev = false,
+  searchQuery,
+  isActiveMatch = false,
 }) => {
   const { user } = useAuth();
   const {
@@ -117,19 +121,72 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
-  // Helper to autolink URLs and highlight @mentions
+  // Helper to highlight matching text in search
+  const highlightSearchText = (text: string, query?: string, baseKey?: number | string) => {
+    if (!query || !query.trim() || !text) return text;
+    const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escaped})`, 'gi');
+    const segments = text.split(regex);
+
+    if (segments.length === 1) return text;
+
+    return (
+      <React.Fragment key={baseKey}>
+        {segments.map((segment, sIdx) => {
+          if (!segment) return null;
+          if (segment.toLowerCase() === query.trim().toLowerCase()) {
+            return (
+              <mark
+                key={sIdx}
+                className="bg-amber-300 dark:bg-amber-400 text-gray-950 px-1 py-0.2 rounded font-semibold shadow-2xs"
+              >
+                {segment}
+              </mark>
+            );
+          }
+          return segment;
+        })}
+      </React.Fragment>
+    );
+  };
+
+  // Helper to autolink URLs, format mentions cleanly, and highlight search query
   const renderContentWithLinksAndMentions = (content: string, sentByMe: boolean) => {
     if (!content) return null;
 
-    // Combined regex for URLs and @mentions
-    const tokenRegex = /(https?:\/\/[^\s]+|@[a-zA-Z0-9_]+(?:\s[a-zA-Z0-9_]+)?)/g;
+    // Collect names of conversation members to match multi-word names (e.g. "Sneh Moradia")
+    const memberNames: string[] = [];
+    if (activeConversation?.members) {
+      activeConversation.members.forEach((m) => {
+        if (m.displayName) memberNames.push(m.displayName.trim());
+        if (m.username) memberNames.push(m.username.trim());
+      });
+    }
+    if (user?.displayName) memberNames.push(user.displayName.trim());
+    if (user?.username) memberNames.push(user.username.trim());
+
+    // Sort by length descending so "Sneh Moradia" is evaluated before "Sneh"
+    const uniqueNames = Array.from(new Set(memberNames))
+      .filter((n) => n.length > 0)
+      .sort((a, b) => b.length - a.length);
+
+    // Escape regex characters in names
+    const escapedNames = uniqueNames.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+
+    // Match exact member name with @ OR single word mention @handle
+    const mentionPattern = escapedNames.length > 0
+      ? `@(?:${escapedNames.join('|')}|[a-zA-Z0-9_-]+)`
+      : `@[a-zA-Z0-9_-]+`;
+
+    // Combined regex for URLs and exact @mentions
+    const tokenRegex = new RegExp(`(https?:\\/\\/[^\\s]+|${mentionPattern})`, 'gi');
     const parts = content.split(tokenRegex);
 
     return parts.map((part, i) => {
       if (!part) return null;
 
       // Check if URL
-      if (part.match(/^https?:\/\//)) {
+      if (part.match(/^https?:\/\//i)) {
         return (
           <a
             key={i}
@@ -153,10 +210,10 @@ export const MessageItem: React.FC<MessageItemProps> = ({
         return (
           <span
             key={i}
-            className={`inline-flex items-center px-1.5 py-0.2 rounded font-semibold text-xs transition-colors ${
+            className={`inline-flex items-center px-1.5 py-0.5 rounded-md font-semibold text-xs select-none transition-colors shadow-2xs ${
               sentByMe
-                ? 'bg-white/25 text-white underline decoration-white/50'
-                : 'bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-orange-300 border border-amber-300 dark:border-amber-800'
+                ? 'bg-white/25 hover:bg-white/35 text-white'
+                : 'bg-teams-100/90 dark:bg-teams-900/60 text-teams-700 dark:text-teams-200 hover:bg-teams-200 dark:hover:bg-teams-900/90'
             }`}
           >
             {part}
@@ -164,7 +221,8 @@ export const MessageItem: React.FC<MessageItemProps> = ({
         );
       }
 
-      return part;
+      // Normal text with search highlighting
+      return highlightSearchText(part, searchQuery, i);
     });
   };
 
@@ -474,7 +532,11 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           <div className="max-w-[85%] sm:max-w-[70%] flex flex-col items-end">
             <div className="flex items-center gap-2">
               <div
-                className={`relative px-4 py-2 text-sm leading-relaxed break-words shadow-xs transition-colors ${
+                className={`relative px-4 py-2 text-sm leading-relaxed break-words shadow-xs transition-all duration-300 ${
+                  isActiveMatch
+                    ? 'ring-2 ring-amber-300 dark:ring-amber-300 ring-offset-2 dark:ring-offset-teamsDark-chat shadow-md '
+                    : ''
+                } ${
                   message.isDeleted
                     ? 'bg-gray-200 dark:bg-teamsDark-card text-gray-500 dark:text-gray-400 italic rounded-2xl rounded-tr-xs'
                     : 'bg-teams-500 text-white rounded-2xl ' +
@@ -615,23 +677,23 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
           {/* Content Area */}
           <div className="max-w-[85%] sm:max-w-[70%] flex flex-col items-start min-w-0">
-            {/* Sender Name & Tag Badge @ (matches Image 2: Sneh Moradia @) */}
+            {/* Sender Name & Tag Badge @ */}
             {!isSameSenderAsPrev && (
               <div className="flex items-center gap-1.5 mb-1">
                 <span
                   className={`text-xs font-semibold ${
                     hasMention || mentionsMe
-                      ? 'text-amber-600 dark:text-orange-400'
+                      ? 'text-teams-700 dark:text-teams-300'
                       : 'text-gray-700 dark:text-gray-300'
                   }`}
                 >
                   {message.senderId?.displayName || 'User'}
                 </span>
 
-                {/* Tag @ Badge icon matching Image 2 */}
+                {/* Tag @ Badge icon matching Teams */}
                 {(hasMention || mentionsMe) && (
                   <span
-                    className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-amber-500/80 text-amber-600 dark:text-orange-400 text-[10px] font-bold select-none cursor-pointer"
+                    className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-teams-100 dark:bg-teams-900/50 text-teams-600 dark:text-teams-300 text-[10px] font-bold select-none cursor-pointer"
                     title="Mentions team member"
                   >
                     @
@@ -655,7 +717,11 @@ export const MessageItem: React.FC<MessageItemProps> = ({
 
             {/* Received Message Bubble */}
             <div
-              className={`relative px-4 py-2 text-sm leading-relaxed break-words shadow-xs border transition-colors ${
+              className={`relative px-4 py-2 text-sm leading-relaxed break-words shadow-xs border transition-all duration-300 ${
+                isActiveMatch
+                  ? 'ring-2 ring-teams-500 dark:ring-teams-400 ring-offset-2 dark:ring-offset-teamsDark-chat shadow-md '
+                  : ''
+              } ${
                 message.isDeleted
                   ? 'bg-gray-100 dark:bg-teamsDark-card border-gray-200 dark:border-teamsDark-border text-gray-400 italic rounded-2xl rounded-tl-xs'
                   : 'bg-gray-100 dark:bg-teamsDark-card text-gray-900 dark:text-gray-100 border-gray-200/70 dark:border-teamsDark-border/60 rounded-2xl ' +

@@ -41,6 +41,7 @@ interface ChatContextType {
   removeMemberFromGroup: (conversationId: string, memberId: string) => Promise<void>;
   toggleAdminRole: (conversationId: string, memberId: string) => Promise<void>;
   leaveCurrentGroup: (conversationId: string) => Promise<void>;
+  clearChat: (conversationId: string) => Promise<void>;
   sendTyping: () => void;
   sendStopTyping: () => void;
 }
@@ -344,6 +345,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
 
+    const handleChatCleared = ({ conversationId }: { conversationId: string }) => {
+      const current = activeConvoRef.current;
+      if (current && current._id === conversationId) {
+        setMessages([]);
+      }
+      setConversations((prev) =>
+        prev.map((c) =>
+          c._id === conversationId
+            ? { ...c, lastMessage: undefined, pinnedMessages: [] }
+            : c
+        )
+      );
+    };
+
     socket.on('receiveMessage', handleReceiveMessage);
     socket.on('newMessageNotification', handleNewMessageNotification);
     socket.on('typing', handleTyping);
@@ -354,6 +369,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     socket.on('messageReaction', handleMessageReaction);
     socket.on('messagePinned', handleMessagePinned);
     socket.on('conversationUpdated', handleConversationUpdated);
+    socket.on('chatCleared', handleChatCleared);
 
     return () => {
       socket.off('receiveMessage', handleReceiveMessage);
@@ -366,6 +382,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       socket.off('messageReaction', handleMessageReaction);
       socket.off('messagePinned', handleMessagePinned);
       socket.off('conversationUpdated', handleConversationUpdated);
+      socket.off('chatCleared', handleChatCleared);
     };
   }, [socket, user, fetchConversations]);
 
@@ -439,6 +456,29 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (err) {
       console.error('Failed to delete message:', err);
+    }
+  };
+
+  // Clear all messages in conversation
+  const clearChat = async (conversationId: string) => {
+    try {
+      await messagesApi.clearChat(conversationId);
+      if (activeConversation?._id === conversationId) {
+        setMessages([]);
+      }
+      setConversations((prev) =>
+        prev.map((c) =>
+          c._id === conversationId
+            ? { ...c, lastMessage: undefined, pinnedMessages: [] }
+            : c
+        )
+      );
+      if (socket) {
+        socket.emit('clearChat', { conversationId });
+      }
+    } catch (err) {
+      console.error('Failed to clear chat:', err);
+      throw err;
     }
   };
 
@@ -639,6 +679,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         removeMemberFromGroup,
         toggleAdminRole,
         leaveCurrentGroup,
+        clearChat,
         sendTyping,
         sendStopTyping,
       }}

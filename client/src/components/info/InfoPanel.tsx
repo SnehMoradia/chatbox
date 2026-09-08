@@ -13,11 +13,13 @@ import {
   Loader2,
   Film,
   Download,
+  Trash2,
 } from 'lucide-react';
 import { useChat } from '../../context/ChatContext';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { Avatar } from '../common/Avatar';
+import { ClearChatModal } from '../modals/ClearChatModal';
 import { messagesApi, usersApi } from '../../services/api';
 import { User } from '../../types';
 
@@ -31,6 +33,7 @@ export const InfoPanel: React.FC = () => {
     removeMemberFromGroup,
     toggleAdminRole,
     leaveCurrentGroup,
+    clearChat,
   } = useChat();
   const { user } = useAuth();
   const { isUserOnline } = useSocket();
@@ -39,6 +42,8 @@ export const InfoPanel: React.FC = () => {
   const [sharedMedia, setSharedMedia] = useState<Array<{ type: 'image' | 'gif'; url: string; name?: string; size?: number; messageId: string; createdAt: string }>>([]);
   const [sharedFiles, setSharedFiles] = useState<Array<{ type: 'file'; url: string; name: string; size: number; mimeType: string; messageId: string; createdAt: string }>>([]);
   const [isLoadingMedia, setIsLoadingMedia] = useState(false);
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
 
   // Group editing state
   const [isEditingGroup, setIsEditingGroup] = useState(false);
@@ -71,7 +76,8 @@ export const InfoPanel: React.FC = () => {
       try {
         const res = await messagesApi.getMedia(activeConversation._id);
         if (isMounted && res.success) {
-          setSharedMedia(res.media);
+          // Strictly photos only (GIFs are excluded)
+          setSharedMedia(res.media.filter((item) => item.type === 'image'));
           setSharedFiles(res.files);
         }
       } catch (err) {
@@ -341,24 +347,38 @@ export const InfoPanel: React.FC = () => {
                     );
                   })}
                 </div>
-
-                {/* Leave Group Action */}
-                <div className="pt-4 border-t border-gray-200 dark:border-teamsDark-border">
-                  <button
-                    type="button"
-                    onClick={() => leaveCurrentGroup(activeConversation._id)}
-                    className="w-full flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 rounded-lg transition-colors border border-rose-200 dark:border-rose-900"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    Leave Group
-                  </button>
-                </div>
               </div>
             )}
+
+            {/* Conversation Actions Section */}
+            <div className="pt-3 border-t border-gray-200 dark:border-teamsDark-border space-y-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 block mb-1">
+                Conversation Actions
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowClearModal(true)}
+                className="w-full flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/50 rounded-lg transition-colors border border-rose-200 dark:border-rose-900 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Clear Chat History
+              </button>
+
+              {isGroup && (
+                <button
+                  type="button"
+                  onClick={() => leaveCurrentGroup(activeConversation._id)}
+                  className="w-full flex items-center justify-center gap-2 py-2 px-3 text-xs font-semibold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-teamsDark-card hover:bg-gray-200 dark:hover:bg-teamsDark-cardHover rounded-lg transition-colors border border-gray-200 dark:border-teamsDark-border cursor-pointer"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  Leave Group
+                </button>
+              )}
+            </div>
           </>
         )}
 
-        {/* Media (Photos & GIFs) Tab */}
+        {/* Media (Photos) Tab */}
         {activeTab === 'media' && (
           <div className="space-y-3">
             {isLoadingMedia ? (
@@ -367,7 +387,7 @@ export const InfoPanel: React.FC = () => {
               </div>
             ) : sharedMedia.length === 0 ? (
               <div className="py-12 text-center text-xs text-gray-400">
-                No photos or GIFs shared in this conversation.
+                No photos shared in this conversation.
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-2">
@@ -381,15 +401,10 @@ export const InfoPanel: React.FC = () => {
                   >
                     <img
                       src={item.url}
-                      alt={item.name || 'Shared Media'}
+                      alt={item.name || 'Shared Photo'}
                       className="w-full h-full object-cover transition-transform group-hover:scale-105"
                       loading="lazy"
                     />
-                    {item.type === 'gif' && (
-                      <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/60 text-white text-[9px] font-bold">
-                        GIF
-                      </span>
-                    )}
                   </a>
                 ))}
               </div>
@@ -590,6 +605,28 @@ export const InfoPanel: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Clear Chat Confirmation Modal */}
+      <ClearChatModal
+        isOpen={showClearModal}
+        onClose={() => setShowClearModal(false)}
+        onConfirm={async () => {
+          if (!activeConversation) return;
+          try {
+            setIsClearing(true);
+            await clearChat(activeConversation._id);
+            setShowClearModal(false);
+            setSharedMedia([]);
+            setSharedFiles([]);
+          } catch (err) {
+            console.error('Failed to clear chat:', err);
+          } finally {
+            setIsClearing(false);
+          }
+        }}
+        isClearing={isClearing}
+        conversationName={isGroup ? activeConversation.name : otherMember?.displayName}
+      />
     </aside>
   );
 };

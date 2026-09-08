@@ -10,6 +10,7 @@ const {
   forwardMessage,
   markAsRead,
   getConversationMedia,
+  clearChat,
 } = require('../controllers/messageController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -17,6 +18,7 @@ router.use(protect);
 
 router.get('/:conversationId', getMessages);
 router.post('/', sendMessage);
+router.delete('/:conversationId/clear', clearChat);
 router.put('/:id', editMessage);
 router.delete('/:id', deleteMessage);
 router.post('/:id/react', toggleReaction);

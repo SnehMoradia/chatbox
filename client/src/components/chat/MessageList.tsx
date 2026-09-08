@@ -7,20 +7,24 @@ import { ChevronDown, MessageSquare, Loader2 } from 'lucide-react';
 
 interface MessageListProps {
   searchFilterQuery?: string;
+  activeMatchId?: string;
 }
 
-export const MessageList: React.FC<MessageListProps> = ({ searchFilterQuery }) => {
+export const MessageList: React.FC<MessageListProps> = ({
+  searchFilterQuery,
+  activeMatchId,
+}) => {
   const { messages, isLoadingMessages, typingUsers, activeConversation } = useChat();
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on new messages (paused if user is actively searching)
   useEffect(() => {
-    if (!showScrollToBottom) {
+    if (!showScrollToBottom && !searchFilterQuery?.trim()) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, typingUsers, showScrollToBottom]);
+  }, [messages, typingUsers, showScrollToBottom, searchFilterQuery]);
 
   // When active conversation changes, scroll directly to bottom
   useEffect(() => {
@@ -56,13 +60,6 @@ export const MessageList: React.FC<MessageListProps> = ({ searchFilterQuery }) =
     );
   };
 
-  // Filter messages by in-chat search query if active
-  const filteredMessages = searchFilterQuery?.trim()
-    ? messages.filter((m) =>
-        m.content?.toLowerCase().includes(searchFilterQuery.toLowerCase().trim())
-      )
-    : messages;
-
   if (isLoadingMessages) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -81,7 +78,7 @@ export const MessageList: React.FC<MessageListProps> = ({ searchFilterQuery }) =
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto teams-scrollbar py-3"
       >
-        {filteredMessages.length === 0 ? (
+        {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 select-none">
             <div className="w-14 h-14 rounded-2xl bg-teams-50 dark:bg-teams-900/30 text-teams-500 flex items-center justify-center mb-3 shadow-xs">
               <MessageSquare className="w-7 h-7" />
@@ -95,15 +92,15 @@ export const MessageList: React.FC<MessageListProps> = ({ searchFilterQuery }) =
           </div>
         ) : (
           <div className="space-y-1">
-            {filteredMessages.map((msg, index) => {
+            {messages.map((msg, index) => {
               const currentDate = format(new Date(msg.createdAt), 'yyyy-MM-dd');
               const prevDate =
                 index > 0
-                  ? format(new Date(filteredMessages[index - 1].createdAt), 'yyyy-MM-dd')
+                  ? format(new Date(messages[index - 1].createdAt), 'yyyy-MM-dd')
                   : null;
 
               const showDate = currentDate !== prevDate;
-              const prevMsg = index > 0 ? filteredMessages[index - 1] : null;
+              const prevMsg = index > 0 ? messages[index - 1] : null;
 
               const prevSenderId =
                 typeof prevMsg?.senderId === 'object'
@@ -124,13 +121,15 @@ export const MessageList: React.FC<MessageListProps> = ({ searchFilterQuery }) =
                 ) < 5 * 60 * 1000;
 
               return (
-                <React.Fragment key={msg._id}>
+                <div key={msg._id} id={`msg-${msg._id}`}>
                   {showDate && renderDateSeparator(msg.createdAt)}
                   <MessageItem
                     message={msg}
                     isSameSenderAsPrev={isSameSenderAsPrev}
+                    searchQuery={searchFilterQuery}
+                    isActiveMatch={msg._id === activeMatchId}
                   />
-                </React.Fragment>
+                </div>
               );
             })}
           </div>

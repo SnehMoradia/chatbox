@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { ChevronLeft, Info, Pin, Search, Users, X } from 'lucide-react';
+import { ChevronLeft, Info, Pin, Search, Users, X, MoreVertical, Trash2 } from 'lucide-react';
 import { useChat } from '../../context/ChatContext';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
 import { Avatar } from '../common/Avatar';
+import { ClearChatModal } from '../modals/ClearChatModal';
 import { format, formatDistanceToNow } from 'date-fns';
 
 interface ChatHeaderProps {
@@ -12,10 +13,20 @@ interface ChatHeaderProps {
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = ({ onToggleSearch, isSearchOpen }) => {
-  const { activeConversation, isInfoPanelOpen, setIsInfoPanelOpen, setIsMobileSidebarOpen, messages } = useChat();
+  const {
+    activeConversation,
+    isInfoPanelOpen,
+    setIsInfoPanelOpen,
+    setIsMobileSidebarOpen,
+    messages,
+    clearChat,
+  } = useChat();
   const { user } = useAuth();
   const { isUserOnline } = useSocket();
   const [showPinnedDropdown, setShowPinnedDropdown] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showClearModal, setShowClearModal] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
 
   if (!activeConversation) return null;
 
@@ -190,7 +201,65 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({ onToggleSearch, isSearch
         >
           <Info className="w-4 h-4" />
         </button>
+
+        {/* More Options Dropdown (Clear Chat) */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowMoreMenu((prev) => !prev)}
+            className={`p-2 rounded-lg transition-colors ${
+              showMoreMenu
+                ? 'bg-teams-50 dark:bg-teams-900/40 text-teams-600 dark:text-teams-400'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-teamsDark-cardHover'
+            }`}
+            title="More Options"
+          >
+            <MoreVertical className="w-4 h-4" />
+          </button>
+
+          {showMoreMenu && (
+            <>
+              <div
+                className="fixed inset-0 z-30"
+                onClick={() => setShowMoreMenu(false)}
+              />
+              <div className="absolute right-0 mt-1 w-40 bg-white dark:bg-teamsDark-card border border-gray-200 dark:border-teamsDark-border rounded-xl shadow-teams-popover p-1 z-40 animate-fade-in">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMoreMenu(false);
+                    setShowClearModal(true);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Clear Chat
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
+
+      {/* Clear Chat Confirmation Modal */}
+      <ClearChatModal
+        isOpen={showClearModal}
+        onClose={() => setShowClearModal(false)}
+        onConfirm={async () => {
+          if (!activeConversation) return;
+          try {
+            setIsClearing(true);
+            await clearChat(activeConversation._id);
+            setShowClearModal(false);
+          } catch (err) {
+            console.error('Failed to clear chat:', err);
+          } finally {
+            setIsClearing(false);
+          }
+        }}
+        isClearing={isClearing}
+        conversationName={displayName}
+      />
     </header>
   );
 };
