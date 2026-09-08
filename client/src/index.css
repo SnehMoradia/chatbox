@@ -70,3 +70,19 @@
 .typing-dot-1 { animation: typingBounce 1.2s infinite ease-in-out 0s; }
 .typing-dot-2 { animation: typingBounce 1.2s infinite ease-in-out 0.2s; }
 .typing-dot-3 { animation: typingBounce 1.2s infinite ease-in-out 0.4s; }
+
+/* Teams typing wave with color pulse matching screenshot */
+@keyframes teamsTypingWave {
+  0%, 100% {
+    background-color: #6b7280;
+    transform: translateY(0) scale(0.9);
+  }
+  30% {
+    background-color: #7d88ec;
+    transform: translateY(-3px) scale(1.1);
+  }
+}
+
+.teams-typing-dot-1 { animation: teamsTypingWave 1.4s infinite ease-in-out 0s; }
+.teams-typing-dot-2 { animation: teamsTypingWave 1.4s infinite ease-in-out 0.25s; }
+.teams-typing-dot-3 { animation: teamsTypingWave 1.4s infinite ease-in-out 0.5s; }

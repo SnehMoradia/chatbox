@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useChat } from '../../context/ChatContext';
 import { MessageItem } from './MessageItem';
+import { Avatar } from '../common/Avatar';
 import { format, isToday, isYesterday } from 'date-fns';
 import { ChevronDown, MessageSquare, Loader2 } from 'lucide-react';
 
@@ -135,18 +136,30 @@ export const MessageList: React.FC<MessageListProps> = ({ searchFilterQuery }) =
           </div>
         )}
 
-        {/* Typing indicator bubble */}
+        {/* Typing indicator matching Teams reference screenshot */}
         {typingUsers.length > 0 && (
-          <div className="flex items-center gap-2.5 px-4 py-2 text-xs text-gray-500 dark:text-gray-400 animate-fade-in select-none">
-            <div className="flex items-center gap-1 bg-gray-100 dark:bg-teamsDark-card py-1 px-2.5 rounded-full shadow-2xs">
-              <span className="w-1.5 h-1.5 rounded-full bg-teams-500 typing-dot-1" />
-              <span className="w-1.5 h-1.5 rounded-full bg-teams-500 typing-dot-2" />
-              <span className="w-1.5 h-1.5 rounded-full bg-teams-500 typing-dot-3" />
-            </div>
-            <span className="italic text-[11px]">
-              {typingUsers.map((u) => u.displayName).join(', ')}{' '}
-              {typingUsers.length === 1 ? 'is' : 'are'} typing...
-            </span>
+          <div className="flex flex-col gap-2 px-4 py-1 animate-fade-in select-none">
+            {typingUsers.map((u) => {
+              const typingMember = activeConversation?.members?.find(
+                (m) => m._id === u.userId || (typeof m === 'string' && m === u.userId)
+              );
+
+              return (
+                <div key={u.userId} className="flex items-center gap-2.5">
+                  <Avatar
+                    name={u.displayName}
+                    imageUrl={typingMember?.profilePicture}
+                    size="sm"
+                    status="available"
+                  />
+                  <div className="flex items-center gap-1.5 py-1">
+                    <span className="w-2.5 h-2.5 rounded-full teams-typing-dot-1" />
+                    <span className="w-2.5 h-2.5 rounded-full teams-typing-dot-2" />
+                    <span className="w-2.5 h-2.5 rounded-full teams-typing-dot-3" />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 
