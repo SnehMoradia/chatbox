@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { X, Users, Search, Check, Loader2 } from 'lucide-react';
-import { usersApi } from '../../services/api';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Users, Search, Check, Loader2, Upload, Trash2 } from 'lucide-react';
+import { usersApi, uploadsApi } from '../../services/api';
 import { User } from '../../types';
 import { Avatar } from '../common/Avatar';
 import { useChat } from '../../context/ChatContext';
@@ -15,6 +15,8 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ isOpen, onCl
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [groupPicture, setGroupPicture] = useState('');
+  const [isUploadingPicture, setIsUploadingPicture] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
@@ -154,17 +156,74 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ isOpen, onCl
               />
             </div>
 
-            {/* Picture URL */}
+            {/* Picture Upload */}
             <div>
-              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                Group Avatar Image URL (Optional)
+              <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                Group Avatar (Optional)
               </label>
+
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setIsUploadingPicture(true);
+                  try {
+                    const res = await uploadsApi.uploadSingle(file);
+                    if (res.success && res.file?.url) {
+                      setGroupPicture(res.file.url);
+                    }
+                  } catch (err) {
+                    console.error('Failed to upload group image:', err);
+                  } finally {
+                    setIsUploadingPicture(false);
+                    e.target.value = '';
+                  }
+                }}
+                accept="image/*"
+                className="hidden"
+              />
+
+              <div className="flex items-center gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingPicture}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg bg-teams-50 dark:bg-teams-900/40 text-teams-700 dark:text-teams-300 border border-teams-200 dark:border-teams-800 hover:bg-teams-100 dark:hover:bg-teams-900/60 transition-colors cursor-pointer"
+                >
+                  {isUploadingPicture ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Uploading...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Upload from Device</span>
+                    </>
+                  )}
+                </button>
+
+                {groupPicture && (
+                  <button
+                    type="button"
+                    onClick={() => setGroupPicture('')}
+                    className="flex items-center justify-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-gray-100 dark:bg-teamsDark-card text-gray-600 dark:text-gray-400 hover:text-rose-600 border border-gray-200 dark:border-teamsDark-border transition-colors cursor-pointer"
+                    title="Remove avatar"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Remove</span>
+                  </button>
+                )}
+              </div>
+
               <input
                 type="url"
                 value={groupPicture}
                 onChange={(e) => setGroupPicture(e.target.value)}
-                placeholder="https://example.com/avatar.png"
-                className="w-full px-3 py-2 text-sm bg-gray-50 dark:bg-teamsDark-input text-gray-900 dark:text-gray-100 rounded-lg border border-gray-200 dark:border-teamsDark-border focus:border-teams-500 focus:outline-none"
+                placeholder="Or paste an image URL (https://...)"
+                className="w-full px-3 py-1.5 text-xs bg-gray-50 dark:bg-teamsDark-input text-gray-900 dark:text-gray-100 rounded-lg border border-gray-200 dark:border-teamsDark-border focus:border-teams-500 focus:outline-none"
               />
             </div>
 
